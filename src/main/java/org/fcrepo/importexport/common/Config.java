@@ -93,6 +93,50 @@ public class Config {
     private boolean skipTombstoneErrors = false;
 
     /**
+     * Creates a configuration with default values.
+     */
+    public Config() {
+    }
+
+    /**
+     * Creates an independent copy of a configuration.
+     *
+     * @param source configuration to copy
+     */
+    public Config(final Config source) {
+        mode = source.mode;
+        resource = source.resource;
+        this.source = source.source;
+        destination = source.destination;
+        baseDirectory = source.baseDirectory;
+        writeConfig = source.writeConfig;
+        repositoryRoot = source.repositoryRoot;
+        includeAcls = source.includeAcls;
+        includeBinaries = source.includeBinaries;
+        retrieveExternal = source.retrieveExternal;
+        retrieveInbound = source.retrieveInbound;
+        includeMembership = source.includeMembership;
+        overwriteTombstones = source.overwriteTombstones;
+        legacy = source.legacy;
+        includeVersions = source.includeVersions;
+        bagProfile = source.bagProfile;
+        bagConfigPath = source.bagConfigPath;
+        bagSerialization = source.bagSerialization;
+        bagAlgorithms = source.bagAlgorithms == null ? null : source.bagAlgorithms.clone();
+        predicates = source.predicates == null ? null : source.predicates.clone();
+        rdfExtension = source.rdfExtension;
+        rdfLanguage = source.rdfLanguage;
+        username = source.username;
+        password = source.password;
+        threadCount = source.threadCount;
+        resourceFile = source.resourceFile;
+        auditLog = source.auditLog;
+        streaming = source.streaming;
+        rdf_set = source.rdf_set;
+        skipTombstoneErrors = source.skipTombstoneErrors;
+    }
+
+    /**
      * This method returns true if the configuration is set for 'import'
      *
      * @return true if import config

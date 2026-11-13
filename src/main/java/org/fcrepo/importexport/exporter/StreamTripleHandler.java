@@ -39,6 +39,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -136,19 +137,34 @@ public class StreamTripleHandler implements StreamRDF {
         LOGGER.trace("Starting stream triple handler");
         exports = new ArrayList<>();
         if (file == null) {
+            if (exporter.isSynchronous()) {
+                throw new IllegalStateException("No file set for output stream");
+            }
             LOGGER.error("No file set for output stream");
             return;
         }
         if (uri == null) {
+            if (exporter.isSynchronous()) {
+                throw new IllegalStateException("No resource URI set");
+            }
             LOGGER.error("No resource URI set");
             return;
         }
-        if (!file.getParentFile().exists()) {
-            file.getParentFile().mkdirs();
+        if (!file.getParentFile().exists() && !file.getParentFile().mkdirs()) {
+            final IOException exception = new IOException("Unable to create output directory "
+                    + file.getParentFile());
+            if (exporter.isSynchronous()) {
+                throw new UncheckedIOException(exception);
+            }
+            LOGGER.error(exception.getMessage());
+            return;
         }
         try {
             outputStream = new BufferedOutputStream(new FileOutputStream(file));
         } catch (FileNotFoundException e) {
+            if (exporter.isSynchronous()) {
+                throw new UncheckedIOException("Error creating output stream for " + file, e);
+            }
             LOGGER.error("Error creating output stream: {}", e.getMessage());
         }
     }
@@ -235,6 +251,9 @@ public class StreamTripleHandler implements StreamRDF {
                 }
             }
         } catch (IOException e) {
+            if (exporter.isSynchronous()) {
+                throw new UncheckedIOException("Error closing output stream for " + file, e);
+            }
             LOGGER.error("Error closing output stream: {}", e.getMessage());
         } finally {
             // Reset the output stream and file

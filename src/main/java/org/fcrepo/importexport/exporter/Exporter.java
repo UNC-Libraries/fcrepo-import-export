@@ -67,6 +67,7 @@ import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -127,6 +128,7 @@ public class Exporter implements TransferProcess {
 
     final Config config;
     protected FcrepoClient.FcrepoClientBuilder clientBuilder;
+    private final FcrepoClient directClient;
     private final URI binaryURI;
     private final URI containerURI;
     private final URI rdfSourceURI;
@@ -148,6 +150,8 @@ public class Exporter implements TransferProcess {
     protected URI repositoryRoot = null;
 
     private final TaskManager taskManager;
+    private final ArrayDeque<URI> synchronousQueue;
+    private final Set<URI> synchronousResources;
 
     /**
      * Constructor that takes the Import/Export configuration
@@ -158,6 +162,7 @@ public class Exporter implements TransferProcess {
     public Exporter(final Config config, final FcrepoClient.FcrepoClientBuilder clientBuilder) {
         this.config = config;
         this.clientBuilder = clientBuilder;
+        this.directClient = null;
         this.binaryURI = URI.create(NON_RDF_SOURCE.getURI());
         this.containerURI = URI.create(CONTAINER.getURI());
         this.rdfSourceURI = URI.create(RDF_SOURCE.getURI());
@@ -166,10 +171,34 @@ public class Exporter implements TransferProcess {
         this.dateFormat = new SimpleDateFormat("yyyy-MM-dd");
         this.repositoryRoot = config.getRepositoryRoot();
         this.taskManager = new TaskManager(config.getThreadCount());
+        this.synchronousQueue = null;
+        this.synchronousResources = null;
 
         if (config.getBagProfile() != null) {
             configureBagItParameters();
         }
+    }
+
+    /**
+     * Creates an exporter whose resources are processed synchronously by the calling thread.
+     *
+     * @param config per-call export configuration
+     * @param client client shared by the resource export service
+     */
+    Exporter(final Config config, final FcrepoClient client) {
+        this.config = config;
+        this.clientBuilder = null;
+        this.directClient = client;
+        this.binaryURI = URI.create(NON_RDF_SOURCE.getURI());
+        this.containerURI = URI.create(CONTAINER.getURI());
+        this.rdfSourceURI = URI.create(RDF_SOURCE.getURI());
+        this.exportLogger = config.getAuditLog();
+        this.remainingLogger = getLogger(REMAINING_LOG_PREFIX);
+        this.dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+        this.repositoryRoot = config.getRepositoryRoot();
+        this.taskManager = null;
+        this.synchronousQueue = new ArrayDeque<>();
+        this.synchronousResources = new HashSet<>();
     }
 
     // A StreamTripleHandler holds per-resource state (output stream, file, current uri), so each RDF export
@@ -300,10 +329,17 @@ public class Exporter implements TransferProcess {
     }
 
     FcrepoClient client() {
+        if (directClient != null) {
+            return directClient;
+        }
         if (config.getUsername() != null) {
             clientBuilder.credentials(config.getUsername(), config.getPassword());
         }
         return clientBuilder.build();
+    }
+
+    boolean isSynchronous() {
+        return synchronousQueue != null;
     }
 
     /**
@@ -390,7 +426,29 @@ public class Exporter implements TransferProcess {
      * @param uri resource to export
      */
     protected void export(final URI uri) {
-        taskManager.submit(uri);
+        if (synchronousQueue != null) {
+            if (synchronousResources.add(uri)) {
+                synchronousQueue.addLast(uri);
+            }
+        } else {
+            taskManager.submit(uri);
+        }
+    }
+
+    /**
+     * Exports a resource and everything discovered from it in the calling thread.
+     *
+     * @param rootResource root resource to export
+     * @throws FcrepoOperationFailedException when a Fedora request fails
+     * @throws IOException when export output cannot be written
+     */
+    void exportSynchronously(final URI rootResource) throws FcrepoOperationFailedException, IOException {
+        startTime = Instant.now();
+        export(rootResource);
+        while (!synchronousQueue.isEmpty()) {
+            doExport(synchronousQueue.removeFirst());
+        }
+        exportLogger.info("Finished export... {} bytes/{} resources exported", successBytes.get(), successCount.get());
     }
 
     /**
